@@ -59,7 +59,7 @@ class CoustomRag:
         metadata = [result["payload"] for result in results]
 
         logger.info(f"Search completed for query: {query} with {len(results)} results.")
-        return {"final_answer": final_answer, "metadata": metadata}
+        return final_answer #{"final_answer": final_answer, "metadata": metadata}
     
     def _generate_final_answer(self, results: List[Dict[str, Any]], query: str) -> str:
         texts = [result["payload"]["text"] for result in results]
@@ -90,7 +90,7 @@ class CSVQuestionAnswer():
                                 temperature=os.getenv('OPENAI_TEMPERATURE'),
                                 model_name=os.getenv('OPENAI_MODEL'),
                                 top_p=os.getenv('OPENAI_TOP_P'))
-        self.agent = Agent(self.dataframes_list, config={"llm": self.llm_service, "verbose": True, "enable_cache": False, "max_retries": 10})
+        self.agent = Agent(self.dataframes_list, config={"llm": self.llm_service, "verbose": False, "enable_cache": False, "max_retries": 10})
                 
                         
     def create_dataframe_from_excel(self, excel_path):
@@ -118,18 +118,43 @@ class CSVQuestionAnswer():
         return response_content
 
         
+def get_final_answer(question, text_rag, csv_rag):
+    llm_service =  ChatOpenAI(api_key=os.getenv('OPENAI_API_KEY'),
+                                temperature=os.getenv('OPENAI_TEMPERATURE'),
+                                model_name=os.getenv('OPENAI_MODEL'),
+                                top_p=os.getenv('OPENAI_TOP_P'))
+    
+    text_answer = text_rag.get_answer(question)
+    csv_answer = csv_rag.get_answer(question)
+    final_prompt = f"""
+    Question: {question}
+
+    Text-based Answer:{text_answer}
+    CSV-based Answer: {csv_answer}
+
+    Based on the information provided in the text and the CSV data, please synthesize a final, comprehensive answer to the original question.
+    """
+    final_answer = llm_service.invoke(final_prompt)
+    return final_answer.content
+        
 if __name__ == "__main__":
-    rag = CoustomRag(
+    text_rag = CoustomRag(
         embedding_model_name="mixedbread-ai/mxbai-embed-large-v1",
         quadrant_url=os.getenv("QDRANT_URL"),
         collection_name="contract_collection",
         limit=5
     )
     
-    #out = rag.get_answer("What are the different compliance conditions that we talk about here")
-    #print(out)
+    # text_out = text_rag.get_answer("What are the different compliance conditions that we talk about here")
+    # print(text_out)
     
     csv_rag = CSVQuestionAnswer("/root/code/Invoice-processing-llm/PetroChoice_SAIA_LTL_Exhibit E_ 08.22.2022 (1) (1)/PetroChoice_SAIA_LTL_Exhibit E_ 08.22.2022 (1) (1)_table.xlsx")
-    csv_rag.get_answer(' What is discount between AR and LA')
+    # csv_out = csv_rag.get_answer('What is discount between AR and LA')
+    # print(csv_out)
     
     
+    ###########Now we need to a way which takes answer from both of these give to llm service and then give the final answer
+    #Whe common question is being asked to someone
+    question = "What is discount between AR and LA"
+    final = get_final_answer(question, text_rag, csv_rag)
+    print(final)

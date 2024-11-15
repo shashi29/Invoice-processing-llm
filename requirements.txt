@@ -5,3 +5,5 @@ langchain_openai
 qdrant-client
 sentence-transformers
 python-dotenv
+openpyxl
+tabulate
