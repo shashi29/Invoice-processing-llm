@@ -122,7 +122,7 @@ class EmbeddingManager:
             model_cache.put(model_name, model)
         return model
 
-    def process_pdf_json(self, pdf_json: Dict[str, str], document_name: str, chunk_size: int = 1000, chunk_overlap: int = 200):
+    def process_pdf_json(self, pdf_json: Dict[str, str], document_name: str, chunk_size: int = 500, chunk_overlap: int = 200):
         try:
             logger.info(f"Processing PDF JSON: {document_name}")
             collection_name = "contract_collection"

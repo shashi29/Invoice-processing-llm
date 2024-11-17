@@ -52,14 +52,34 @@ class CoustomRag:
         )
         
         results = [{"score": hit.score, "payload": hit.payload} for hit in search_results]
-        
         # Process the results to include final answer and metadata
-        final_answer = self._generate_final_answer(results, query)
+        final_answer = self._generate_final_answer(results, question)
         #final_answer = ""
         metadata = [result["payload"] for result in results]
 
-        logger.info(f"Search completed for query: {query} with {len(results)} results.")
+        logger.info(f"Search completed for query: {question} with {len(results)} results.")
         return final_answer #{"final_answer": final_answer, "metadata": metadata}
+    
+    def get_answer_from_all_context(self, question):
+        query = self.embedding_model.encode(question).tolist()
+        # Search in Qdrant
+        search_results = self.qdrant_client.search(
+            collection_name=self.collection_name,
+            query_vector=query,
+            limit=40
+        )
+        
+        results = [{"score": hit.score, "payload": hit.payload} for hit in search_results]
+        for text_info in results:
+            texts = text_info["payload"]["text"]
+            formatted_prompt = self._get_formatted_prompt(texts, question)
+            final_answer = self.llm_service.invoke(formatted_prompt)
+            print("******************************************************************************\n")
+            print(final_answer)
+            if "Not able to find relevant context" not in final_answer.content :
+                return final_answer.content
+        
+        return  "Not able to find relevant context"
     
     def _generate_final_answer(self, results: List[Dict[str, Any]], query: str) -> str:
         texts = [result["payload"]["text"] for result in results]
@@ -80,6 +100,7 @@ class CoustomRag:
         Please answer this question based solely on the information provided above: {query}
         Remember to use only the information from the given text in your answer. 
         Do not introduce any external information or make assumptions beyond what is explicitly stated in the text.
+        If you can not answer the question then return "Not able to find relvant context"
         """
         
 class CSVQuestionAnswer():
@@ -90,7 +111,7 @@ class CSVQuestionAnswer():
                                 temperature=os.getenv('OPENAI_TEMPERATURE'),
                                 model_name=os.getenv('OPENAI_MODEL'),
                                 top_p=os.getenv('OPENAI_TOP_P'))
-        self.agent = Agent(self.dataframes_list, config={"llm": self.llm_service, "verbose": False, "enable_cache": False, "max_retries": 10})
+        self.agent = Agent(self.dataframes_list, config={"llm": self.llm_service, "verbose": False, "enable_cache": False, "max_retries": 3})
                 
                         
     def create_dataframe_from_excel(self, excel_path):
@@ -107,11 +128,10 @@ class CSVQuestionAnswer():
         Enhance the instructions for using a Pandas DataFrame without including specific code.
         Exclude steps related to importing libraries and loading data. 
         User input prompt: {input_prompt} 
-        Here is data: {data}'''
+        Here is sample data for column reference: {data}'''
         
     def get_answer(self, question):
-        input_text = "What is the Discount between AL and TX and what is the minium value?"
-        updated_instruction = self.get_planner_instruction_with_data(input_text, self.markdown_data)
+        updated_instruction = self.get_planner_instruction_with_data(question, self.markdown_data)
         updated_instruction = self.llm_service.invoke(updated_instruction)
         rephrased_query = self.agent.rephrase_query(updated_instruction.content)
         response_content = self.agent.chat(rephrased_query)
@@ -132,7 +152,33 @@ def get_final_answer(question, text_rag, csv_rag):
     Text-based Answer:{text_answer}
     CSV-based Answer: {csv_answer}
 
-    Based on the information provided in the text and the CSV data, please synthesize a final, comprehensive answer to the original question.
+    Synthesize a final, comprehensive answer using both the provided text-based answer and CSV data.
+
+    To complete this task, integrate and reconcile both sources of information—combining the textual insights with the empirical CSV-based findings.
+
+    # Steps
+
+    1. **Understand the Question**: Clearly comprehend the original question to ensure that both sources of information are being directly applied to answer it.
+    2. **Analyze Both Data Sources**:
+    - **Text-based Answer**: Extract core insights and arguments from the text.
+    - **CSV-based Answer**: Extract relevant quantitative or data-oriented insights from the CSV information.
+    3. **Synthesize Information**:
+    - Combine qualitative insights from the text-based answer with the empirical support from the CSV-based answer.
+    - Resolve any conflicting information between the two sources.
+    - Ensure conciseness, clarity, and a comprehensive response to the question using the strengths of each source.
+    
+    # Output Format
+
+    - The response should be a paragraph that integrates the qualitative and quantitative data cohesively.
+    - The response should address the specific question comprehensively and directly.
+    - Length: Approximately 3-5 sentences, more if needed to achieve coherence.
+    - Structured logically, starting by addressing significant points from both answers, and ensuring that the final synthesis is clearly presented.
+
+    # Notes
+
+    - Prioritize synthesizing a cohesive answer that makes logical sense from the two sources.
+    - If you encounter any conflicting information, determine which source holds more authority based on the type of question and point that out as needed.
+    - Aim for clarity, ensuring the reader can understand how the text and CSV data complement each other.    
     """
     final_answer = llm_service.invoke(final_prompt)
     return final_answer.content
@@ -145,16 +191,19 @@ if __name__ == "__main__":
         limit=5
     )
     
-    # text_out = text_rag.get_answer("What are the different compliance conditions that we talk about here")
-    # print(text_out)
+    #text_out = text_rag.get_answer("""Are the ship date (05-18-23), delivery date (05-22-23), and reference date (05-22-23) consistent with the agreed timelines within the contract?""")
+    #print(text_out)
+    # question = "This agreement is made between which two parties?"
+    # out = text_rag.get_answer_from_all_context(question)
+    # print(out)
     
     csv_rag = CSVQuestionAnswer("/root/code/Invoice-processing-llm/PetroChoice_SAIA_LTL_Exhibit E_ 08.22.2022 (1) (1)/PetroChoice_SAIA_LTL_Exhibit E_ 08.22.2022 (1) (1)_table.xlsx")
-    # csv_out = csv_rag.get_answer('What is discount between AR and LA')
+    # csv_out = csv_rag.get_answer('What is the discount from FL to FL')
     # print(csv_out)
     
     
-    ###########Now we need to a way which takes answer from both of these give to llm service and then give the final answer
-    #Whe common question is being asked to someone
-    question = "What is discount between AR and LA"
+    # ###########Now we need to a way which takes answer from both of these give to llm service and then give the final answer
+    # #Whe common question is being asked to someone
+    question = """What is the discount from FL to FL ?"""
     final = get_final_answer(question, text_rag, csv_rag)
     print(final)
